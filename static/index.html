@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Local Ollama Chat</title>
+  <style>
+    :root {
+      --bg: #0f0f1a;
+      --text: #e0e0ff;
+      --accent: #7b5eff;
+      --bubble-user: #4f46e5;
+      --bubble-bot: #1e293b;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #chat-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+    .message {
+      max-width: 80%;
+      padding: 1rem 1.3rem;
+      border-radius: 1.2rem;
+      line-height: 1.45;
+      animation: fadeIn 0.3s ease;
+    }
+    .user {
+      align-self: flex-end;
+      background: var(--bubble-user);
+      color: white;
+      border-bottom-right-radius: 0.4rem;
+    }
+    .bot {
+      align-self: flex-start;
+      background: var(--bubble-bot);
+      border-bottom-left-radius: 0.4rem;
+    }
+    #input-area {
+      padding: 1rem;
+      background: rgba(30, 41, 59, 0.6);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      gap: 0.8rem;
+    }
+    #prompt {
+      flex: 1;
+      padding: 0.9rem 1.3rem;
+      border: none;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      color: white;
+      font-size: 1.05rem;
+    }
+    #prompt:focus { outline: 2px solid var(--accent); }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.9rem 1.6rem;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background: #6d4fff; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+
+<div id="chat-container"></div>
+
+<div id="input-area">
+  <input id="prompt" type="text" placeholder="Ask anything..." autocomplete="off"/>
+  <button onclick="sendMessage()">Send</button>
+</div>
+
+<script>
+const chatContainer = document.getElementById("chat-container");
+const promptInput = document.getElementById("prompt");
+
+function addMessage(content, isUser = false) {
+  const div = document.createElement("div");
+  div.className = `message ${isUser ? 'user' : 'bot'}`;
+  div.textContent = content;
+  chatContainer.appendChild(div);
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+  return div; // return for streaming updates
+}
+
+async function sendMessage() {
+  const text = promptInput.value.trim();
+  if (!text) return;
+
+  addMessage(text, true);
+  promptInput.value = "";
+  
+  const botMessage = addMessage(""); // placeholder for streaming
+
+  try {
+    const response = await fetch("/api/chat-stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: text })
+    });
+
+    if (!response.body) throw new Error("No stream");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || ""; // last partial line
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") break;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.token) {
+              botMessage.textContent += parsed.token;
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+            if (parsed.error) {
+              botMessage.textContent = "Error: " + parsed.error;
+              botMessage.style.color = "#ff6b6b";
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (err) {
+    botMessage.textContent = "Failed to connect to Ollama... " + err.message;
+    botMessage.style.color = "#ff6b6b";
+  }
+}
+
+// Enter key support
+promptInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+</script>
+</body>
+</html>

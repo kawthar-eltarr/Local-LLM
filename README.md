@@ -26,11 +26,13 @@ A simple real-time chat interface that runs locally using Ollama + FastAPI.
 
 ### Start the Ollama Server
 Open a dedicated terminal and run:
+```bash
 run ollama run llama3.2
 
 ### Run the Chat Application
+```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
-
+```bash
 (Or python main.py)
 
 ## Open the Chat in Your Browser
